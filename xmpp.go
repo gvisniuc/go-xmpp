@@ -39,6 +39,8 @@ const (
 	nsBind    = "urn:ietf:params:xml:ns:xmpp-bind"
 	nsClient  = "jabber:client"
 	NsSession = "urn:ietf:params:xml:ns:xmpp-session"
+	nsMUC     = "http://jabber.org/protocol/muc"
+	nsMUCUser = "http://jabber.org/protocol/muc#user"
 )
 
 var DefaultConfig tls.Config
@@ -176,14 +178,8 @@ func (o Options) NewClient() (*Client, error) {
 		if strings.LastIndex(o.Host, ":") > 0 {
 			host = host[:strings.LastIndex(o.Host, ":")]
 		}
-		insecureSkipVerify := DefaultConfig.InsecureSkipVerify
-		if o.TLSConfig != nil {
-			insecureSkipVerify = o.TLSConfig.InsecureSkipVerify
-		}
-		if !insecureSkipVerify {
-			if err = tlsconn.VerifyHostname(host); err != nil {
-				return nil, err
-			}
+		if err = tlsconn.VerifyHostname(host); err != nil {
+			return nil, err
 		}
 		client.conn = tlsconn
 	}
@@ -226,6 +222,31 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
+// xep-0045 7.2
+func (c *Client) JoinMUC(jid string) {
+	fmt.Fprintf(c.conn, "<presence to='%s'>\n" +
+				"<x xmlns='%s'><history maxstanzas='0'/></x>\n" +
+				"</presence>",
+		xmlEscape(jid), nsMUC)
+}
+
+// xep-0045 7.14
+func (c *Client) LeaveMUC(jid string) {
+	fmt.Fprintf(c.conn, "<presence from='%s' to='%s' type='unavailable' />",
+		c.jid, xmlEscape(jid))
+}
+
+// Keep alive (timetout occurs every 150s in hipchat.
+func (c *Client) KeepAlive() {
+	fmt.Fprintf(c.conn, " ")
+}
+
+// Change status when deploying
+func (c *Client) ChangeStatus(show string, status string) {
+	fmt.Fprintf(c.conn, "<presence xml:lang='en'><show>%s</show><status>%s</status></presence>", xmlEscape(show), xmlEscape(status))
+
+}
+
 func saslDigestResponse(username, realm, passwd, nonce, cnonceStr,
 	authenticate, digestUri, nonceCountStr string) string {
 	h := func(text string) []byte {
@@ -240,12 +261,12 @@ func saslDigestResponse(username, realm, passwd, nonce, cnonceStr,
 		return h(secret + ":" + data)
 	}
 
-	a1 := string(h(username+":"+realm+":"+passwd)) + ":" +
-		nonce + ":" + cnonceStr
+	a1 := string(h(username + ":" + realm + ":" + passwd)) + ":" +
+			nonce + ":" + cnonceStr
 	a2 := authenticate + ":" + digestUri
-	response := hex(kd(hex(h(a1)), nonce+":"+
-		nonceCountStr+":"+cnonceStr+":auth:"+
-		hex(h(a2))))
+	response := hex(kd(hex(h(a1)), nonce+":" +
+				nonceCountStr+":"+cnonceStr+":auth:" +
+				hex(h(a2))))
 	return response
 }
 
@@ -434,7 +455,7 @@ func (c *Client) startTlsIfRequired(f *streamFeatures, o *Options, domain string
 	fmt.Fprintf(c.conn, "<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>\n")
 	var k tlsProceed
 	if err = c.p.DecodeElement(&k, nil); err != nil {
-		return f, errors.New("unmarshal <proceed>: " + err.Error())
+		return f, errors.New("unmarshal <proceed>: "+err.Error())
 	}
 
 	tc := o.TLSConfig
@@ -447,7 +468,7 @@ func (c *Client) startTlsIfRequired(f *streamFeatures, o *Options, domain string
 	t := tls.Client(c.conn, tc)
 
 	if err = t.Handshake(); err != nil {
-		return f, errors.New("starttls handshake: " + err.Error())
+		return f, errors.New("starttls handshake: "+err.Error())
 	}
 	c.conn = t
 
@@ -468,9 +489,9 @@ func (c *Client) startStream(o *Options, domain string) (*streamFeatures, error)
 		c.p = xml.NewDecoder(tee{c.conn, os.Stdout})
 	}
 
-	_, err := fmt.Fprintf(c.conn, "<?xml version='1.0'?>\n"+
-		"<stream:stream to='%s' xmlns='%s'\n"+
-		" xmlns:stream='%s' version='1.0'>\n",
+	_, err := fmt.Fprintf(c.conn, "<?xml version='1.0'?>\n" +
+				"<stream:stream to='%s' xmlns='%s'\n" +
+				" xmlns:stream='%s' version='1.0'>\n",
 		xmlEscape(domain), nsClient, nsStream)
 	if err != nil {
 		return nil, err
@@ -490,7 +511,7 @@ func (c *Client) startStream(o *Options, domain string) (*streamFeatures, error)
 	// See section 4.6 in RFC 3920.
 	f := new(streamFeatures)
 	if err = c.p.DecodeElement(f, nil); err != nil {
-		return f, errors.New("unmarshal <features>: " + err.Error())
+		return f, errors.New("unmarshal <features>: "+err.Error())
 	}
 	return f, nil
 }
@@ -536,8 +557,8 @@ func (c *Client) Recv() (event interface{}, err error) {
 
 // Send sends message text.
 func (c *Client) Send(chat Chat) {
-	fmt.Fprintf(c.conn, "<message to='%s' type='%s' xml:lang='en'>"+
-		"<body>%s</body></message>",
+	fmt.Fprintf(c.conn, "<message to='%s' type='%s' xml:lang='en'>" +
+				"<body>%s</body></message>",
 		xmlEscape(chat.Remote), xmlEscape(chat.Type), xmlEscape(chat.Text))
 }
 
@@ -733,7 +754,7 @@ func next(p *xml.Decoder) (xml.Name, interface{}, error) {
 		nv = &clientError{}
 	default:
 		return xml.Name{}, nil, errors.New("unexpected XMPP message " +
-			se.Name.Space + " <" + se.Name.Local + "/>")
+				se.Name.Space+" <"+se.Name.Local+"/>")
 	}
 
 	// Unmarshal into that storage.
