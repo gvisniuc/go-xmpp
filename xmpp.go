@@ -556,14 +556,15 @@ func (c *Client) Recv() (event interface{}, err error) {
 	panic("unreachable")
 }
 
+
 // Send sends message text.
-func (c *Client) Send(chat Chat) {
+func (c *Client) Send(chat Chat, error) {
 	_, err := fmt.Fprintf(c.conn, "<message to='%s' type='%s' xml:lang='en'>" +
 				"<body>%s</body></message>",
 		xmlEscape(chat.Remote), xmlEscape(chat.Type), xmlEscape(chat.Text))
 		
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}	
 }
 
