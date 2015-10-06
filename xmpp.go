@@ -557,15 +557,10 @@ func (c *Client) Recv() (event interface{}, err error) {
 }
 
 
-// Send sends message text.
-func (c *Client) Send(chat Chat, error) {
-	_, err := fmt.Fprintf(c.conn, "<message to='%s' type='%s' xml:lang='en'>" +
-				"<body>%s</body></message>",
+// Send sends the message wrapped inside an XMPP message stanza body.
+func (c *Client) Send(chat Chat) (n int, err error) {
+	return fmt.Fprintf(c.conn, "<message to='%s' type='%s' xml:lang='en'>"+"<body>%s</body></message>",
 		xmlEscape(chat.Remote), xmlEscape(chat.Type), xmlEscape(chat.Text))
-		
-	if err != nil {
-		return nil, err
-	}	
 }
 
 // Send origin
