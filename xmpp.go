@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"net"
 	"net/http"
@@ -557,9 +558,13 @@ func (c *Client) Recv() (event interface{}, err error) {
 
 // Send sends message text.
 func (c *Client) Send(chat Chat) {
-	fmt.Fprintf(c.conn, "<message to='%s' type='%s' xml:lang='en'>" +
+	_, err = fmt.Fprintf(c.conn, "<message to='%s' type='%s' xml:lang='en'>" +
 				"<body>%s</body></message>",
 		xmlEscape(chat.Remote), xmlEscape(chat.Type), xmlEscape(chat.Text))
+		
+	if err != nil {
+		log.Fatal(err)
+	}	
 }
 
 // Send origin
